@@ -7,37 +7,59 @@ Route::get('/', function () {
     return view('welcome');
 });
 
-// --- API ENDPOINT PER I SATELLITI ---
-Route::get('/api/satellites/starlink', function () {
-    // Dati dell'osservatore (useremo una posizione fissa per ora, es. equatore)
-    $observerLat = 0;
-    $observerLng = 0;
-    $observerAlt = 0;
-
-    // ID della categoria Starlink su N2YO
-    $starlinkCategoryId = 52;
-
-    // Raggio di ricerca in gradi (90 è l'intero cielo visibile da un punto)
-    $radius = 90;
-
+// --- API ENDPOINT PER I SATELLITI (LOGICA CORRETTA E GLOBALE) ---
+Route::get('/api/satellites/gps', function () {
     // Recupera la chiave API dal file .env
     $apiKey = env('N2YO_API_KEY');
-
-    // Se la chiave non è impostata, restituisce un errore
     if (!$apiKey) {
         return response()->json(['error' => 'API Key non trovata.'], 500);
     }
 
-    // Esegue la chiamata all'API di N2YO usando il client HTTP di Laravel
-    $response = Http::get("https://api.n2yo.com/rest/v1/satellite/above/{$observerLat}/{$observerLng}/{$observerAlt}/{$radius}/{$starlinkCategoryId}", [
-        'apiKey' => $apiKey
-    ]);
+    try {
+        // --- FASE 1: Ottenere la lista dei satelliti di un gruppo ---
+        // Useremo il gruppo "GPS Operational" (ID 20)
+        $gpsCategoryId = 20;
+        $responseList = Http::get("https://api.n2yo.com/rest/v1/satellite/above/0/0/0/90/{$gpsCategoryId}", [
+            'apiKey' => $apiKey
+        ]);
 
-    // Controlla se la chiamata ha avuto successo
-    if ($response->failed()) {
-        return response()->json(['error' => 'Errore nella chiamata a N2YO API.'], 500);
+        if ($responseList->failed() || !isset($responseList->json()['above'])) {
+            // In caso di fallimento della prima chiamata, restituiamo una risposta sicura.
+            return response()->json(['info' => ['satcount' => 0], 'above' => []]);
+        }
+
+        $satellites = $responseList->json()['above'];
+        $satellitePositions = [];
+
+        // --- FASE 2: Ottenere la posizione esatta di ogni satellite ---
+        foreach ($satellites as $satellite) {
+            $satId = $satellite['satid'];
+
+            // Chiamata all'endpoint "positions" per avere lat/lon globali
+            $posResponse = Http::get("https://api.n2yo.com/rest/v1/satellite/positions/{$satId}/0/0/0/1", [
+                'apiKey' => $apiKey
+            ]);
+
+            // CONTROLLO DI ROBUSTEZZA: Se la chiamata per la singola posizione fallisce, la saltiamo e andiamo avanti
+            if ($posResponse->failed()) {
+                continue; // Salta al prossimo satellite nel ciclo
+            }
+
+            if ($posResponse->successful() && isset($posResponse->json()['positions'][0])) {
+                $positionData = $posResponse->json()['positions'][0];
+                $satellitePositions[] = [
+                    'satid' => $satellite['satid'],
+                    'satname' => $satellite['satname'],
+                    'satlat' => $positionData['satlatitude'], // CORREZIONE FINALE
+                    'satlng' => $positionData['satlongitude'], // CORREZIONE FINALE
+                ];
+            }
+        }
+
+        // Restituisce i dati nel formato che il frontend si aspetta
+        return response()->json(['info' => $responseList->json()['info'], 'above' => $satellitePositions]);
+    } catch (\Exception $e) {
+        // In caso di qualsiasi eccezione (es. timeout, rate limit), restituisci una risposta sicura.
+        return response()->json(['info' => ['satcount' => 0], 'above' => []]);
     }
-
-    // Restituisce i dati dei satelliti come risposta JSON
-    return $response->json();
 });
