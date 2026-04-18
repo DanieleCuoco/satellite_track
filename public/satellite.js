@@ -8,6 +8,12 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
 
+
+
+
+
+
+
     
     // --- 1. SETUP DELLA SCENA 3D ---
     // Il LoadingManager gestisce e tiene traccia delle risorse caricate.
@@ -24,15 +30,24 @@ document.addEventListener('DOMContentLoaded', () => {
     // La scena è il contenitore principale di tutti gli oggetti, le luci e le telecamere.
     const scene = new THREE.Scene();
 
-    // La camera è il nostro "occhio" virtuale. Definiamo il campo visivo (75), le proporzioni, e i limiti di visione.
-    const camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.z = 2; // Spostiamo la camera indietro per poter vedere il globo, che sarà al centro (0,0,0).
+    // La camera è il nostro "occhio" virtuale. Riduciamo il campo visivo (FOV) a 45 per evitare la distorsione prospettica ai bordi (effetto "uovo").
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.z = 5; // Allontaniamo la camera per compensare il FOV più stretto e mantenere le proporzioni.
 
     // Il renderer è il "motore" che disegna la scena. Usiamo WebGL e attiviamo l'antialias per bordi più smussati.
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(window.innerWidth, window.innerHeight); // Imposta la dimensione del canvas a tutta la finestra.
     renderer.setClearColor(0x000000, 0); // Rende lo sfondo del renderer trasparente per vedere lo starfield dietro.
     container.appendChild(renderer.domElement); // Aggiunge il canvas (renderer.domElement) alla nostra pagina HTML.
+
+
+
+
+
+
+
+
+
 
     // --- 2. CREAZIONE DEGLI OGGETTI ---
     // Definiamo la forma geometrica: una sfera. I numeri (1, 64, 64) indicano il raggio e la definizione (più alti sono, più è liscia).
@@ -52,7 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Creiamo le nuvole usando una sfera leggermente più grande.
     const cloudGeometry = new THREE.SphereGeometry(1, 64, 64);
     const cloudMaterial = new THREE.MeshPhongMaterial({
-        map: textureLoader.load('https://threejs.org/examples/textures/planets/earth_clouds.png'), // URL Corretto e Stabile
+        map: textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_clouds_1024.png'), // URL Corretto e Stabile
         transparent: true,
         opacity: 0.1
     });
@@ -91,14 +106,84 @@ document.addEventListener('DOMContentLoaded', () => {
     // fetchAndDrawSatellites();
     // setInterval(fetchAndDrawSatellites, 60000); // Aggiorna ogni minuto
 
+
+
+
+
     // --- 3. ILLUMINAZIONE ---
     // Aggiungiamo una luce ambientale fioca per illuminare leggermente tutto, anche le parti in ombra.
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.1);
     scene.add(ambientLight);
     // Aggiungiamo una luce forte (il nostro "Sole") che avrà una posizione fissa.
     const pointLight = new THREE.PointLight(0xffffff, 1.5);
-    pointLight.position.set(5, 0, 5); // Posizioniamo il nostro "Sole" a destra e un po' avanti
+    pointLight.position.set(15, 0, 20); // Allontaniamo leggermente il "Sole" per una migliore visuale
     scene.add(pointLight);
+
+
+
+
+
+
+
+    // --- CREAZIONE DEL SOLE VISIBILE (SFERA SOLIDA) ---
+    // Sfera più grande, in modo che l'occlusione (quando va dietro la Terra)
+    // sia più graduale e non immediata.
+    const sunGeometry = new THREE.SphereGeometry(0.7, 32, 32); 
+    const sunMaterial = new THREE.MeshBasicMaterial({ 
+        color: 0xffffff, // Bianco puro
+        transparent: true,
+        depthWrite: false 
+    });
+    const sunSphere = new THREE.Mesh(sunGeometry, sunMaterial);
+
+    // Carichiamo le texture Lensflare native di Three.js
+    const textureFlare0 = textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/lensflare/lensflare0.png');
+    const textureFlare3 = textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/lensflare/lensflare3.png');
+
+    // La Corona: Aumentiamo tantissimo le sue dimensioni. Quando il sole scende
+    // dietro il pianeta, questa "atmosfera luminosa" continuerà a intravedersi
+    // creando un bellissimo effetto di tramonto orbitale.
+    const coronaMaterial = new THREE.SpriteMaterial({
+        map: textureFlare0,
+        color: 0xffaa55, // Tinta arancione-calda per simulare l'atmosfera al tramonto
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        opacity: 1.0
+    });
+
+// SCALA GIGANTE: Questo è il segreto. Quando il Lensflare (che è un punto singolo) 
+    // sparisce di colpo, questo Sprite gigantesco continuerà a brillare dietro i bordi 
+    // della Terra, svanendo gradualmente in modo realistico.
+    const sunCorona = new THREE.Sprite(coronaMaterial);
+    // sunCorona.scale.set(15, 15, 15); 
+    sunSphere.add(sunCorona);
+
+    scene.add(sunSphere);
+
+    // --- EFFETTI LENSFLARE FOTOGRAFICI (NATIVI) ---
+    const lensflare = new THREE.Lensflare();
+    // Disabilitiamo il frustum culling per evitare che il Lensflare sparisca 
+    // se guardi di lato e il centro del sole esce dallo schermo.
+    lensflare.frustumCulled = false; 
+    
+    // Bagliore principale fotocamera (reagisce all'occlusione del pianeta)
+    // Dimensione gigantesca per fare in modo che i "raggi" siano lunghissimi e riempiano
+    // l'obiettivo quando si sbircia da dietro la Terra.
+    lensflare.addElement(new THREE.LensflareElement(textureFlare0, 1300, 0, new THREE.Color(0xffffff)));
+    
+    // Artefatti dell'obiettivo (anelli ed esagoni). Tinta azzurrina calda.
+    const artifactColor = new THREE.Color(0x88aaff); 
+    lensflare.addElement(new THREE.LensflareElement(textureFlare3, 60, 0.4, artifactColor));
+    lensflare.addElement(new THREE.LensflareElement(textureFlare3, 70, 0.5, artifactColor));
+    lensflare.addElement(new THREE.LensflareElement(textureFlare3, 120, 0.7, artifactColor));
+    lensflare.addElement(new THREE.LensflareElement(textureFlare3, 90, 0.8, artifactColor));
+    
+    pointLight.add(lensflare);
+
+
+
+
 
     // --- 4. CONTROLLI UTENTE ---
     // Abilitiamo i controlli per trascinare il globo con il mouse.
@@ -123,9 +208,14 @@ document.addEventListener('DOMContentLoaded', () => {
         onMouseMove(event);
     });
 
+
+
+
+
+
     // --- 6. INTERRUTTORE MODALITÀ LUCE ---
     window.addEventListener('keydown', (event) => {
-        // Se l'utente preme il tasto 'l' (per "Luce")
+        // Se l'utente preme il tasto 'l' (per "Lock")
         if (event.key === 'l' || event.key === 'L') {
             isFlashlightMode = !isFlashlightMode; // Inverte semplicemente il valore
             console.log(`Modalità torcia ${isFlashlightMode ? 'ATTIVATA' : 'DISATTIVATA'}.`);
@@ -147,9 +237,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isFlashlightMode) {
             // Modalità Torcia: la luce segue la camera
             pointLight.position.copy(camera.position);
+            // Nascondiamo il sole visivo e i suoi raggi in modalità torcia per non impallare la vista
+            sunSphere.visible = false;
+            lensflare.visible = false;
         } else {
             // Modalità Sole: la luce è fissa in un punto
-            pointLight.position.set(5, 0, 5);
+            pointLight.position.set(15, 0, 15);
+            // Posizioniamo la sfera solida esattamente dov'è la luce
+            sunSphere.position.copy(pointLight.position);
+            sunSphere.visible = true;
+            lensflare.visible = true;
         }
 
         controls.update(); // Aggiorna i controlli di trascinamento (necessario se enableDamping è true).
@@ -157,6 +254,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     animate(); // Avvia il ciclo di animazione per la prima volta.
+
+
+
+
+
+
 
     // --- 7. CARICAMENTO SATELLITI ---
     const satelliteGroup = new THREE.Group(); // Creiamo un gruppo per contenere tutti i satelliti
@@ -225,6 +328,13 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(fetchAndDrawSatellites, 15000);
 
 
+
+
+
+
+
+
+
     // --- 8. GESTIONE DEL CURSORE CON RAYCASTING ---
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
@@ -250,6 +360,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.addEventListener('mousemove', onMouseMove, false);
 
+
+
+
+
+
+    
     // --- 9. GESTIONE RIDIMENSIONAMENTO FINESTRA ---
     // Aggiungiamo un "ascoltatore" che si attiva ogni volta che la finestra del browser viene ridimensionata.
     window.addEventListener('resize', () => {
